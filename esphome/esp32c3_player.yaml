@@ -32,7 +32,7 @@
 # =====================================================================
 
 esphome:
-  name: music_player
+  name: music-player
   friendly_name: music player
   min_version: 2025.12.0
 
@@ -55,7 +55,7 @@ wifi:
   password: !secret wifi_password
   power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
   ap:
-    ssid: "music_player"
+    ssid: "music-player"
     password: "12345678"
 
 captive_portal:
@@ -73,8 +73,9 @@ speaker:
     i2s_dout_pin: GPIO7
     sample_rate: 16000
     bits_per_sample: 16bit
-    # SD 处于混合模式时功放自动取 (L+R)/2, 所以送完整立体声即可
-    channels: stereo
+    # 键名是单数 channel(2026.x schema): stereo = 左右声道交替输出到两个 I2S 槽位,
+    # MAX98357A 混合模式自动取 (L+R)/2, 音乐左右声道内容都保留
+    channel: right
     buffer_duration: 100ms
 
 media_player:
@@ -88,7 +89,8 @@ media_player:
       speaker: amp_speaker
       format: WAV
       sample_rate: 16000
-      num_channels: 1
+      # 扬声器按立体声槽位输出, 通知流也保持 2 声道, 避免声道数不匹配
+      num_channels: 2
     media_pipeline:                  # 音乐 (HA 自动转码成 MP3, 需 HA 2024.10+)
       speaker: amp_speaker
       format: MP3
