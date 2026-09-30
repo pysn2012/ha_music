@@ -80,8 +80,10 @@ speaker:
     buffer_duration: 100ms
   # 混音器: announcement 与 media 两条流水线不允许共用同一个真实扬声器(编译期强制),
   # 各占一个 mixer 源, 由混音器汇入上面的硬件扬声器; 还能做 TTS 压低音乐的 ducking
+  # (id 不能取 mixer_speaker: 会与组件的 C++ 命名空间 esphome::mixer_speaker 撞名,
+  #  生成的代码报 ambiguous, 换任何别的名字都行)
   - platform: mixer
-    id: mixer_speaker
+    id: audio_mixer
     output_speaker: amp_speaker
     source_speakers:
       - id: announcement_source
