@@ -1,0 +1,226 @@
+# =====================================================================
+# ESP32-C3 无线音乐音箱固件 (esp32c3_player)
+#
+# 硬件: 自制板 "ESP32C3-插件版本" V1.2.0
+#   - 主控: ESP32-C3 SuperMini (U1)
+#   - 功放: MAX98357A 模块 (U4, SD 脚带 1MΩ 上拉到 VIN=5V) + 3525 扬声器 3W
+#   - 灯:   2 x WS2812D-F8 (眼睛位置, 播放时律动)
+#   - 其他: 振动传感器模块、震动马达模块、电池+充放电模块+电源开关
+#
+# 引脚 (依据原理图网表):
+#   GPIO5  -> MAX98357A SD   开漏控制: 开关"开"=引脚释放(高阻), 模块 1MΩ 上拉
+#                             与芯片内部 100kΩ 下拉分压 ≈0.45V = (L/2+R/2) 混合输出;
+#                             开关"关"=拉低 = 功放关机。
+#                             注意: 严禁推挽拉高(3.3V > 1.4V 会切到仅左声道)!
+#   GPIO6  -> MAX98357A GAIN 保持悬空 = 9dB 默认增益; 拉低 = 12dB。
+#                             不要拉高: 模块 VDD=5V, 3.3V=0.66×VDD 落在 3dB 档。
+#   GPIO7  -> MAX98357A DIN  (I2S 数据)
+#   GPIO8  -> MAX98357A BCLK
+#   GPIO9  -> MAX98357A LRC
+#   GPIO10 <- 振动传感器 DO  (网络名 TAP, 3.3V 供电)
+#   GPIO20 -> 震动马达 IN    (网络名 MOT, 5V 供电)
+#   GPIO21 -> WS2812 灯链数据 (注意: 网表里这个网络叫 "DIN", 不是 I2S 数据线!)
+#   GPIO0-4 空置
+#
+# 交互设计:
+#   - 待机/暂停时敲一下机身 -> 马达短震确认 + 开始播放;
+#     播放状态自动忽略敲击(同时避免了喇叭低频和马达自震的误触发), 暂停用 HA 控制。
+#   - 播放时眼睛灯随机节拍律动, 暂停/停止熄灭。
+#
+# 注意: C3 的 UART0 默认占用 GPIO20/GPIO21, 与本板的马达/灯冲突,
+#       因此 logger 必须走 USB_SERIAL_JTAG (已在下方配置, 勿删)。
+# =====================================================================
+
+esphome:
+  name: music_player
+  friendly_name: music player
+  min_version: 2025.12.0
+
+esp32:
+  variant: ESP32C3
+  flash_size: 4MB
+  framework:
+    type: esp-idf          # media_player 的 speaker 平台仅支持 ESP-IDF
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG   # 走板载 USB-C, 避开 GPIO20/21
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
+  ap:
+    ssid: "music_player"
+    password: "12345678"
+
+captive_portal:
+
+# ---------------- I2S 音频 ----------------
+i2s_audio:
+  - id: i2s_bus
+    i2s_bclk_pin: GPIO8
+    i2s_lrclk_pin: GPIO9
+
+speaker:
+  - platform: i2s_audio
+    id: amp_speaker
+    dac_type: external
+    i2s_dout_pin: GPIO7
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    # SD 处于混合模式时功放自动取 (L+R)/2, 所以送完整立体声即可
+    channels: stereo
+    buffer_duration: 100ms
+
+media_player:
+  - platform: speaker
+    id: speaker_music_player
+    name: speaker_music_player
+    # C3 无 PSRAM, 默认 1MB 缓冲装不下; 每条流水线各占一份。
+    # 内存不足/重启 -> 降到 49152; 音乐卡顿 -> 升到 98304。
+    buffer_size: 65536
+    announcement_pipeline:           # TTS/通知 (HA 自动转码成 WAV)
+      speaker: amp_speaker
+      format: WAV
+      sample_rate: 16000
+      num_channels: 1
+    media_pipeline:                  # 音乐 (HA 自动转码成 MP3, 需 HA 2024.10+)
+      speaker: amp_speaker
+      format: MP3
+      sample_rate: 44100
+      num_channels: 2
+    # 播放状态联动眼睛灯: 播放 -> 律动, 暂停/停止 -> 熄灭
+    on_play:
+      - light.turn_on:
+          id: status_leds
+          brightness: 100%
+          effect: Music Pulse
+    on_pause:
+      - light.turn_off:
+          id: status_leds
+    on_idle:
+      - light.turn_off:
+          id: status_leds
+
+# ---------------- 功放使能 (SD, 开漏控制) ----------------
+# 开漏输出: 开关开 -> 引脚释放(高阻), 模块 1MΩ 上拉把 SD 分压到 ~0.45V = 混合输出;
+#           开关关 -> 拉低 SD = 功放关机。绝不能推挽拉高(=仅左声道)。
+output:
+  - platform: gpio
+    id: amp_sd
+    pin:
+      number: GPIO5
+      mode: OUTPUT_OPEN_DRAIN
+  - platform: gpio
+    id: motor_out
+    pin: GPIO20
+
+switch:
+  - platform: output
+    output: amp_sd
+    id: amp_enable
+    name: Amp Enable
+    restore_mode: ALWAYS_ON
+  # GPIO6 (GAIN) 默认悬空 = 9dB。想手动加一档音量就启用下面这段:
+  # 开(高阻)=9dB, 关(拉低)=12dB。切勿拉高(5V 模块上 3.3V ≈ 3dB 档)。
+  # - platform: gpio
+  #   pin:
+  #     number: GPIO6
+  #     mode: OUTPUT_OPEN_DRAIN
+  #   id: amp_gain
+  #   name: Amp Gain Boost
+  #   restore_mode: ALWAYS_ON
+  - platform: output
+    output: motor_out
+    id: motor_switch
+    name: Vibration Motor
+    restore_mode: ALWAYS_OFF
+
+# ---------------- 眼睛灯 (2 x WS2812) ----------------
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_leds
+    name: Eye LEDs
+    pin: GPIO21
+    num_leds: 2
+    chipset: ws2812
+    rgb_order: GRB
+    is_rgbw: false
+    restore_mode: ALWAYS_OFF
+    effects:
+      # 播放时的律动效果: 随机节拍间隔(220~650ms) + 指数衰减包络 + 每拍随机推进色相,
+      # 模拟多变的音乐节奏。
+      # 说明: ESPHome 拿不到解码后的音频电平, 这是基于时间的节拍动画而非真·音量律动;
+      # 想要真频谱得从喇叭线分压进 ADC(板上 GPIO0-3 空置可用)。
+      - addressable_lambda:
+          name: Music Pulse
+          update_interval: 33ms
+          lambda: |-
+            static uint32_t next_beat = 0;   // 下一次节拍的时间戳
+            static float level = 0.03f;      // 亮度包络 0..1
+            static uint8_t hue = 140;        // 当前色相
+            const uint32_t now = millis();
+            if (now >= next_beat) {
+              // 随机节拍间隔 220~650ms, 模拟多变的节奏
+              next_beat = now + 220 + (uint32_t) (random_float() * 430.0f);
+              level = 1.0f;
+              // 每拍色相随机小步推进, 颜色缓慢游走
+              hue += (uint8_t) (5 + random_float() * 40.0f);
+            }
+            level *= 0.82f;                  // 指数衰减, 模拟敲击后的余辉
+            if (level < 0.03f)
+              level = 0.03f;
+            esphome::light::Color c = esphome::light::ESPHSVColor(hue, 230, 255).to_color();
+            const uint8_t r = (uint8_t) (c.red * level);
+            const uint8_t g = (uint8_t) (c.green * level);
+            const uint8_t b = (uint8_t) (c.blue * level);
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = esphome::light::Color(r, g, b);
+            }
+
+# ---------------- 振动传感器 (敲击开机) ----------------
+# 待机/暂停状态敲一下 -> 马达短震确认 + 开始播放;
+# 播放状态整体忽略敲击(不用再单独防喇叭低频/马达自震的误触发)。
+# 模块上的灵敏度电位器如调得太高, 待机时也可能误触发, 适当调低即可。
+binary_sensor:
+  - platform: gpio
+    id: vibration
+    name: Vibration Sensor
+    device_class: vibration
+    pin:
+      number: GPIO10
+      mode: INPUT
+      inverted: false   # 若你的模块是有振动输出低电平, 改成 true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 150ms
+    on_multi_click:
+      - timing:
+          - ON for at most 0.5s
+          - OFF for at least 0.45s
+        then:
+          - if:
+              condition:
+                not:
+                  media_player.is_playing: speaker_music_player
+              then:
+                - switch.turn_on: motor_switch
+                - delay: 120ms
+                - switch.turn_off: motor_switch
+                - media_player.toggle: speaker_music_player
+
+# ---------------- 辅助功能 ----------------
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    name: WiFi Signal
+    update_interval: 60s
+
+button:
+  - platform: restart
+    name: Restart
