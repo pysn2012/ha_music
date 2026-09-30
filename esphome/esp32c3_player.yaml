@@ -67,35 +67,48 @@ i2s_audio:
     i2s_lrclk_pin: GPIO9
 
 speaker:
+  # 真实硬件扬声器 (I2S 输出)
   - platform: i2s_audio
     id: amp_speaker
     dac_type: external
     i2s_dout_pin: GPIO7
-    sample_rate: 16000
+    sample_rate: 44100
     bits_per_sample: 16bit
-    # 键名是单数 channel(2026.x schema): stereo = 左右声道交替输出到两个 I2S 槽位,
-    # MAX98357A 混合模式自动取 (L+R)/2, 音乐左右声道内容都保留
-    channel: right
+    # mono = 同一份单声道数据写入两个 I2S 槽位, 功放混合模式输出 (槽L+槽R)/2 = 原始信号。
+    # 两条流水线都用 num_channels: 1, 左右声道由 HA 转码时混合, 内容无损、流带宽还减半。
+    channel: mono
     buffer_duration: 100ms
+  # 混音器: announcement 与 media 两条流水线不允许共用同一个真实扬声器(编译期强制),
+  # 各占一个 mixer 源, 由混音器汇入上面的硬件扬声器; 还能做 TTS 压低音乐的 ducking
+  - platform: mixer
+    id: mixer_speaker
+    output_speaker: amp_speaker
+    source_speakers:
+      - id: announcement_source
+      - id: media_source
 
 media_player:
   - platform: speaker
     id: speaker_music_player
     name: speaker_music_player
+    # 音量钳制(参考 S3-BOX-3 官方示例的做法): HA 音量条只在 50%~80% 间移动,
+    # 保护 3W 小喇叭; 想更响走 GAIN 12dB 档或调高 volume_max
+    volume_min: 0.5
+    volume_max: 0.8
     # C3 无 PSRAM, 默认 1MB 缓冲装不下; 每条流水线各占一份。
     # 内存不足/重启 -> 降到 49152; 音乐卡顿 -> 升到 98304。
     buffer_size: 65536
     announcement_pipeline:           # TTS/通知 (HA 自动转码成 WAV)
-      speaker: amp_speaker
+      speaker: announcement_source
       format: WAV
-      sample_rate: 16000
-      # 扬声器按立体声槽位输出, 通知流也保持 2 声道, 避免声道数不匹配
-      num_channels: 2
+      # mixer 的两个源要混音就必须同采样率, 统一 44100
+      sample_rate: 44100
+      num_channels: 1
     media_pipeline:                  # 音乐 (HA 自动转码成 MP3, 需 HA 2024.10+)
-      speaker: amp_speaker
+      speaker: media_source
       format: MP3
       sample_rate: 44100
-      num_channels: 2
+      num_channels: 1
     # 播放状态联动眼睛灯: 播放 -> 律动, 暂停/停止 -> 熄灭
     on_play:
       - light.turn_on:
