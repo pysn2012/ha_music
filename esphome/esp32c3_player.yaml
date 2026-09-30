@@ -192,12 +192,12 @@ light:
             level *= 0.82f;                  // 指数衰减, 模拟敲击后的余辉
             if (level < 0.03f)
               level = 0.03f;
-            esphome::light::Color c = esphome::light::ESPHSVColor(hue, 230, 255).to_color();
+            esphome::Color c = esphome::light::ESPHSVColor(hue, 230, 255).to_color();
             const uint8_t r = (uint8_t) (c.red * level);
             const uint8_t g = (uint8_t) (c.green * level);
             const uint8_t b = (uint8_t) (c.blue * level);
             for (int i = 0; i < it.size(); i++) {
-              it[i] = esphome::light::Color(r, g, b);
+              it[i] = esphome::Color(r, g, b);
             }
 
 # ---------------- 振动传感器 (敲击开机) ----------------
