@@ -219,3 +219,152 @@ sensor:
 button:
   - platform: restart
     name: Restart
+
+# ---------------- 定时播放闹钟 (5 组, 时间在 HA 设备页面设置) ----------------
+# 需要 SNTP 对时; 设备在 HA 里暴露 Alarm 1~5 五个时间实体(设备页面上的时间选择器),
+# 存在设备上、断电保留。到点后固件执行: 马达短震回执 → 音量 60% →
+# 指挥 HA 播放 /media/music/morning.mp3 (歌曲可随时在 HA 里换)。
+# 说明:
+#   - 新烧录后闹钟是"未知"状态, 在 HA 设备页面设置时间后才生效;
+#   - 时间设成 00:00:00 = 该组停用(有守卫, 不会在零点误触发);
+#   - 改时间/停用都在 HA 页面, 不用重编; 换铃声改对应组的
+#     media_content_id、增减组数才需要重编。
+time:
+  - platform: sntp
+    id: ntp_time
+    timezone: Asia/Shanghai
+    servers:
+      - ntp.aliyun.com
+      - 0.pool.ntp.org
+
+datetime:
+  - platform: template
+    id: alarm_1
+    name: "Alarm 1"
+    type: time
+    optimistic: true
+    restore_value: true
+    on_time:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(alarm_1).hour != 0 || id(alarm_1).minute != 0;'
+            then:
+              - switch.turn_on: motor_switch
+              - delay: 120ms
+              - switch.turn_off: motor_switch
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    volume_level: "0.6"
+              - homeassistant.service:
+                  service: media_player.play_media
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    media_content_id: media-source://media_source/local/music/morning.mp3
+                    media_content_type: music
+  - platform: template
+    id: alarm_2
+    name: "Alarm 2"
+    type: time
+    optimistic: true
+    restore_value: true
+    on_time:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(alarm_2).hour != 0 || id(alarm_2).minute != 0;'
+            then:
+              - switch.turn_on: motor_switch
+              - delay: 120ms
+              - switch.turn_off: motor_switch
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    volume_level: "0.6"
+              - homeassistant.service:
+                  service: media_player.play_media
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    media_content_id: media-source://media_source/local/music/morning.mp3
+                    media_content_type: music
+  - platform: template
+    id: alarm_3
+    name: "Alarm 3"
+    type: time
+    optimistic: true
+    restore_value: true
+    on_time:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(alarm_3).hour != 0 || id(alarm_3).minute != 0;'
+            then:
+              - switch.turn_on: motor_switch
+              - delay: 120ms
+              - switch.turn_off: motor_switch
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    volume_level: "0.6"
+              - homeassistant.service:
+                  service: media_player.play_media
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    media_content_id: media-source://media_source/local/music/morning.mp3
+                    media_content_type: music
+  - platform: template
+    id: alarm_4
+    name: "Alarm 4"
+    type: time
+    optimistic: true
+    restore_value: true
+    on_time:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(alarm_4).hour != 0 || id(alarm_4).minute != 0;'
+            then:
+              - switch.turn_on: motor_switch
+              - delay: 120ms
+              - switch.turn_off: motor_switch
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    volume_level: "0.6"
+              - homeassistant.service:
+                  service: media_player.play_media
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    media_content_id: media-source://media_source/local/music/morning.mp3
+                    media_content_type: music
+  - platform: template
+    id: alarm_5
+    name: "Alarm 5"
+    type: time
+    optimistic: true
+    restore_value: true
+    on_time:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(alarm_5).hour != 0 || id(alarm_5).minute != 0;'
+            then:
+              - switch.turn_on: motor_switch
+              - delay: 120ms
+              - switch.turn_off: motor_switch
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    volume_level: "0.6"
+              - homeassistant.service:
+                  service: media_player.play_media
+                  data:
+                    entity_id: media_player.speaker_music_player
+                    media_content_id: media-source://media_source/local/music/morning.mp3
+                    media_content_type: music
