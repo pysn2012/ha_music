@@ -170,35 +170,13 @@ light:
     is_rgbw: false
     restore_mode: ALWAYS_OFF
     effects:
-      # 播放时的律动效果: 随机节拍间隔(220~650ms) + 指数衰减包络 + 每拍随机推进色相,
-      # 模拟多变的音乐节奏。
-      # 说明: ESPHome 拿不到解码后的音频电平, 这是基于时间的节拍动画而非真·音量律动;
-      # 想要真频谱得从喇叭线分压进 ADC(板上 GPIO0-3 空置可用)。
-      - addressable_lambda:
+      # 播放时的随机律动: 内置 random 效果(与 eetree_ai 的"语音律动"同款),
+      # 每 120ms 随机跳到新亮度并做 150ms 过渡, 全程无自定义 C++ 代码,
+      # ESPHome 版本升级也不会导致编译失败。嫌闪得太快可调大 update_interval。
+      - random:
           name: Music Pulse
-          update_interval: 33ms
-          lambda: |-
-            static uint32_t next_beat = 0;   // 下一次节拍的时间戳
-            static float level = 0.03f;      // 亮度包络 0..1
-            static uint8_t hue = 140;        // 当前色相
-            const uint32_t now = millis();
-            if (now >= next_beat) {
-              // 随机节拍间隔 220~650ms, 模拟多变的节奏
-              next_beat = now + 220 + (uint32_t) (random_float() * 430.0f);
-              level = 1.0f;
-              // 每拍色相随机小步推进, 颜色缓慢游走
-              hue += (uint8_t) (5 + random_float() * 40.0f);
-            }
-            level *= 0.82f;                  // 指数衰减, 模拟敲击后的余辉
-            if (level < 0.03f)
-              level = 0.03f;
-            esphome::Color c = esphome::light::ESPHSVColor(hue, 230, 255).to_color();
-            const uint8_t r = (uint8_t) (c.red * level);
-            const uint8_t g = (uint8_t) (c.green * level);
-            const uint8_t b = (uint8_t) (c.blue * level);
-            for (int i = 0; i < it.size(); i++) {
-              it[i] = esphome::Color(r, g, b);
-            }
+          transition_length: 150ms
+          update_interval: 120ms
 
 # ---------------- 振动传感器 (敲击开机) ----------------
 # 待机/暂停状态敲一下 -> 马达短震确认 + 开始播放;
