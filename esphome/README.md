@@ -95,7 +95,7 @@ OPUS 解码在 C3 上跑不动，不要把 pipeline 格式设成 OPUS。认真�
 ESP32-C3 默认会协商 WiFi6(HE)，且在 WPA2/WPA3 混合模式下会走 SAE 认证——不少运营商光猫对这两者的实现有缺陷，表现就是日志里连续 `Auth Expired`、重试多轮才偶尔连上。固件已内置应对（`wifi_compat.h`，串口启动时会打印 `wifi_compat ... rc=0`）：
 
 - **每次断开/认证失败后**，把 STA 强制降级为传统客户端 **802.11b/g/n（禁用 WiFi6/HE）**（时机必须在断开后的空闲时刻——启动扫描中途调用会把认证流程挂死，这是实测踩过的坑）；
-- **发射功率降到 8.5dBm（最低档）**：WiFi TX 满功率瞬时电流可达 ~330mA，供电弱的板子（SuperMini 板载 LDO 仅 250mA、载板走线细）会被拉垮 3.3V 轨，典型表现就是反复 `Auth Expired`、偶尔成功。降功率把尖峰压到 ~130mA；AP 在 -40~-60dBm 时余量足够，电源整改后可改回 20dBm；
+- **发射功率运行时压到 8.5dBm**：WiFi TX 满功率瞬时电流 ~330mA 会拉垮弱供电的 3.3V 轨（MPY 实测 8.5dBm 时 10/10 稳定连接）。注意不能用 YAML 的 `output_power`——那是编译期 PHY 参数（`CONFIG_ESP_PHY_MAX_TX_POWER`），实测会把认证流程挂死；固件里改为 `wifi.on_disconnect` 时调用 `esp_wifi_set_max_tx_power(34)`；
 - 10 分钟仍未连上 WiFi 自动整机重启，重置重试节奏（连接正常时永不触发）。
 
 若改后仍连不上，多半在网关侧，按序排查：

@@ -59,11 +59,10 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
-  # 板子供电弱(WiFi TX 瞬时电流满功率可达 ~330mA, 会把 3.3V 轨拉垮,
-  # 表现为反复 Auth Expired): 降发射功率缩小电流尖峰到 ~130mA。
-  # AP 只有 -40~-60dBm 时 8.5dBm 余量足够(这也是允许的最低值);
-  # 电源整改后想恢复满功率改回 20dBm 即可。
-  output_power: 8.5dBm
+  # 注意: 不要用 output_power(YAML)——那是编译期 PHY 参数
+  # (CONFIG_ESP_PHY_MAX_TX_POWER), 实测在这块 rev0.4 弱供电板子上会把
+  # 认证流程挂死(attempt 1/2 后无任何事件)。TX 功率改为运行时在
+  # wifi.on_disconnect 里压到 8.5dBm, 见 wifi_compat.h。
   ap:
     ssid: "music-player"
     password: "12345678"
