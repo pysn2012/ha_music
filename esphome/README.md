@@ -9,7 +9,8 @@
 | 文件 | 说明 |
 |---|---|
 | `esp32c3_player.yaml` | 固件主配置（含完整引脚注释） |
-| `secrets.yaml` | WiFi 密码与 API 密钥（**烧录前必填**） |
+| `wifi_compat.h` | WiFi 兼容性补丁（强制 11b/g/n、关闭 PMF，见"WiFi 一直连不上"一节） |
+| `secrets.yaml` | WiFi 名称与密码（**编译前必填**，CI 由仓库 Secrets 生成） |
 | `schematic/Schematic1.png` | 板子的原理图高清导出 |
 | `schematic/netlist.txt` | 原理图网表（引脚连接的权威依据） |
 | `schematic/MAX98357A_datasheet.pdf` | 功放数据手册（SD/GAIN 控制依据） |
@@ -18,8 +19,8 @@
 
 1. 编辑 [secrets.yaml](secrets.yaml)：填入 WiFi 名称和密码。
 2. 编译烧录，二选一：
-   - **HA 的 ESPHome 插件（推荐）**：把 `esp32c3_player.yaml` 和 `secrets.yaml` 放进 ESPHome 的配置目录 → 打开该设备 → Install → Plug into this computer。
-   - **命令行**：`pip install esphome` 后执行 `esphome run esp32c3_player.yaml`。
+   - **本地命令行（调试期推荐，一条命令=编译+烧录+看日志）**：`pip install esphome==2026.9.0` 后执行 `esphome run esp32c3_player.yaml`（目录里已放好本地用的 `secrets.yaml`，已被 .gitignore 排除；首次编译要下载 ESP-IDF 工具链 10~20 分钟，之后增量编译 1~2 分钟）。
+   - **GitHub Actions**：推送后手动触发 `build esphome`，下载 Artifact 用 [web.esphome.io](https://web.esphome.io) 或 esptool 从 USB 刷入（工具链已加缓存，重复构建 3~5 分钟）。
 3. 板子用 USB-C 线连接电脑。首次烧录如果识别不到串口：**按住板上的 BOOT 键再插 USB**，松开后开始烧录。
 4. 烧录完成后设备从电池/USB 供电即可，第一次启动若连不上 WiFi 会开放热点 `music-player`（密码 12345678）用于配网。
 
@@ -88,6 +89,21 @@ SD 的三个比较器阈值（0.16 / 0.77 / 1.4V）是数据手册给出的**绝
 | 想要更大音量 | 音量条上限被 `volume_max` 钳在 80%（参考 S3-BOX-3 官方示例保护小喇叭）；可调高该值、启用配置里注释的 GAIN 开关（关=12dB），或换大扬声器 |
 
 OPUS 解码在 C3 上跑不动，不要把 pipeline 格式设成 OPUS。认真追求音质/FLAC 高码率时，换 ESP32-S3（N8R8，带 PSRAM）的板子最省心。
+
+## WiFi 一直连不上（反复 Auth Expired）
+
+ESP32-C3 默认会协商 WiFi6(HE)，且在 WPA2/WPA3 混合模式下会走 SAE 认证——不少运营商光猫对这两者的实现有缺陷，表现就是日志里连续 `Auth Expired`、重试多轮才偶尔连上。固件已内置应对（`wifi_compat.h`，串口启动时会打印 `wifi_compat ... rc=0`）：
+
+- 启动后与每次断开时，把 STA 强制降级为传统客户端：**802.11b/g/n（禁用 WiFi6/HE）+ 关闭 PMF（纯 WPA2-PSK）**；
+- **发射功率降到 8.5dBm（最低档）**：WiFi TX 满功率瞬时电流可达 ~330mA，供电弱的板子（SuperMini 板载 LDO 仅 250mA、载板走线细）会被拉垮 3.3V 轨，典型表现就是反复 `Auth Expired`、偶尔成功。降功率把尖峰压到 ~130mA；AP 在 -40~-60dBm 时余量足够，电源整改后可改回 20dBm；
+- 10 分钟仍未连上 WiFi 自动整机重启，重置重试节奏（连接正常时永不触发）。
+
+若改后仍连不上，多半在网关侧，按序排查：
+
+1. 重启光猫/网关；
+2. 网关后台关闭"防蹭网 / WiFi防破解 / 接入控制(MAC 过滤)"，确认板子 MAC 未被拉黑；
+3. 2.4G 加密改 **WPA2-PSK(AES)**（不要 WPA2/WPA3 混合），关闭 WiFi6/AX 或设兼容模式；
+4. 隔离实验：手机开 2.4G 热点（WPA2），把仓库 Secrets 换成热点的 SSID/密码跑一次 Action 并刷入——能连热点即坐实网关侧问题；连热点也失败再查硬件。
 
 ## 已规避的硬件坑（详见 YAML 内注释）
 

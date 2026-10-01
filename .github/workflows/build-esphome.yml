@@ -19,6 +19,19 @@ jobs:
         with:
           python-version: '3.13'
 
+      # 步骤2.5：缓存 ESP-IDF 工具链（首次构建后缓存 ~1GB 工具链，
+      # 重复构建从 15+ 分钟降到 3~5 分钟）
+      - name: 缓存 ESP-IDF 工具链
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/.cache
+          key: esphome-2026.9.0-${{ runner.os }}
+          restore-keys: |
+            esphome-${{ runner.os }}
+
       # 步骤3：安装 ESPHome
       - name: 安装 ESPHome
         run: |

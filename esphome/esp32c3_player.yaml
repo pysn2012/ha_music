@@ -35,6 +35,17 @@ esphome:
   name: music-player
   friendly_name: music player
   min_version: 2025.12.0
+  includes:
+    - wifi_compat.h
+  on_boot:
+    # AFTER_WIFI(200): WiFi 组件已初始化, 可以调整 esp_wifi 配置了。
+    # 启动即降级为传统客户端(11b/g/n + 关 PMF), 应对光猫兼容性问题,
+    # 详见 wifi_compat.h。rc=0 表示生效, 非 0 为 esp_err_t 错误码。
+    priority: 200
+    then:
+      - lambda: |-
+          int rc = apply_wifi_compat();
+          ESP_LOGI("wifi_compat", "legacy STA mode (11b/g/n, PMF off) applied, rc=%d", rc);
 
 esp32:
   variant: ESP32C3
@@ -54,9 +65,18 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
+  # 板子供电弱(WiFi TX 瞬时电流满功率可达 ~330mA, 会把 3.3V 轨拉垮,
+  # 表现为反复 Auth Expired): 降发射功率缩小电流尖峰到 ~130mA。
+  # AP 只有 -40~-60dBm 时 8.5dBm 余量足够(这也是允许的最低值);
+  # 电源整改后想恢复满功率改回 20dBm 即可。
+  output_power: 8.5dBm
   ap:
     ssid: "music-player"
     password: "12345678"
+  on_disconnect:
+    # 认证失败也算断开: 每次重新应用兼容配置, 保证下一轮重试一定带新配置
+    - lambda: |-
+        apply_wifi_compat();
 
 captive_portal:
 
@@ -218,7 +238,21 @@ sensor:
 
 button:
   - platform: restart
+    id: restart_btn
     name: Restart
+
+interval:
+  # WiFi 兜底: 长时间连不上就整机重启, 重置重试节奏, 不在退避状态里干耗。
+  # 连接正常时永不触发, 不影响播放。
+  - interval: 10min
+    then:
+      - if:
+          condition:
+            not:
+              wifi.connected:
+          then:
+            - logger.log: "WiFi 10min not connected, restarting"
+            - button.press: restart_btn
 
 # ---------------- 定时播放闹钟 (5 组, 时间在 HA 设备页面设置) ----------------
 # 需要 SNTP 对时; 设备在 HA 里暴露 Alarm 1~5 五个时间实体(设备页面上的时间选择器),
