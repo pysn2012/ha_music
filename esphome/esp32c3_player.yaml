@@ -37,15 +37,9 @@ esphome:
   min_version: 2025.12.0
   includes:
     - wifi_compat.h
-  on_boot:
-    # AFTER_WIFI(200): WiFi 组件已初始化, 可以调整 esp_wifi 配置了。
-    # 启动即降级为传统客户端(11b/g/n + 关 PMF), 应对光猫兼容性问题,
-    # 详见 wifi_compat.h。rc=0 表示生效, 非 0 为 esp_err_t 错误码。
-    priority: 200
-    then:
-      - lambda: |-
-          int rc = apply_wifi_compat();
-          ESP_LOGI("wifi_compat", "legacy STA mode (11b/g/n, PMF off) applied, rc=%d", rc);
+    # 注意: 不要在 on_boot 里调 apply_wifi_compat()——实测在 2026.9 的
+    # 启动扫描进行中调 esp_wifi_set_protocol 会把首次认证流程挂死
+    # (无任何 wifi 事件, 直到 10 分钟兜底重启)。应用时机在 wifi.on_disconnect。
 
 esp32:
   variant: ESP32C3
@@ -74,9 +68,12 @@ wifi:
     ssid: "music-player"
     password: "12345678"
   on_disconnect:
-    # 认证失败也算断开: 每次重新应用兼容配置, 保证下一轮重试一定带新配置
+    # 认证失败也算断开: 在断开后的空闲时刻应用 11b/g/n(与 MPY 验证过的
+    # 时机相同), 下一轮重试生效。首次连接会按默认模式先试一次,
+    # 失败后从这里切入传统模式。严禁挪到 on_boot(会挂死, 见 esphome 块注释)。
     - lambda: |-
-        apply_wifi_compat();
+        int rc = apply_wifi_compat();
+        ESP_LOGI("wifi_compat", "legacy mode (11b/g/n) re-applied on disconnect, rc=%d", rc);
 
 captive_portal:
 
