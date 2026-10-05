@@ -28,15 +28,19 @@ jobs:
             ~/.platformio/packages
             ~/.platformio/platforms
             ~/.platformio/.cache
-          key: esphome-2026.9.0-${{ runner.os }}
+          key: esphome-2025.12.0-${{ runner.os }}
           restore-keys: |
             esphome-${{ runner.os }}
 
       # 步骤3：安装 ESPHome
+      # 固定 2025.12.0: 2026.9 的新 WiFi 重试状态机与本板(ESP32-C3 rev0.4 +
+      # 弱供电)组合存在认证挂死问题(运行中触碰 esp_wifi 配置即卡死, 实测多轮复现);
+      # 且 2026.9 的 output_power 改成了编译期 PHY 参数同样挂死。
+      # 2025.12 的 output_power 是运行时 API(与 MPY 实测 10/10 的路径一致)。
       - name: 安装 ESPHome
         run: |
           python -m pip install --upgrade pip
-          pip install esphome==2026.9.0
+          pip install esphome==2025.12.0
 
       # 关键步骤：动态生成 secrets.yaml
       - name: Generate secrets.yaml

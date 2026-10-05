@@ -35,11 +35,6 @@ esphome:
   name: music-player
   friendly_name: music player
   min_version: 2025.12.0
-  includes:
-    - wifi_compat.h
-    # 注意: 不要在 on_boot 里调 apply_wifi_compat()——实测在 2026.9 的
-    # 启动扫描进行中调 esp_wifi_set_protocol 会把首次认证流程挂死
-    # (无任何 wifi 事件, 直到 10 分钟兜底重启)。应用时机在 wifi.on_disconnect。
 
 esp32:
   variant: ESP32C3
@@ -59,22 +54,21 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
-  # 注意: 不要用 output_power(YAML)——那是编译期 PHY 参数
-  # (CONFIG_ESP_PHY_MAX_TX_POWER), 实测在这块 rev0.4 弱供电板子上会把
-  # 认证流程挂死(attempt 1/2 后无任何事件)。TX 功率改为运行时在
-  # wifi.on_disconnect 里压到 8.5dBm, 见 wifi_compat.h。
-  ap:
-    ssid: "music-player"
-    password: "12345678"
-  on_disconnect:
-    # 认证失败也算断开: 在断开后的空闲时刻应用 11b/g/n(与 MPY 验证过的
-    # 时机相同), 下一轮重试生效。首次连接会按默认模式先试一次,
-    # 失败后从这里切入传统模式。严禁挪到 on_boot(会挂死, 见 esphome 块注释)。
-    - lambda: |-
-        int rc = apply_wifi_compat();
-        ESP_LOGI("wifi_compat", "legacy mode (11b/g/n) re-applied on disconnect, rc=%d", rc);
+  # 供电弱的板子把 TX 功率压到 8.5dBm(允许的最低值): 满功率 TX 电流尖峰
+  # ~330mA 会拉垮 3.3V 轨, MPY 实测本板 8.5dBm 下 10/10 稳定。
+  # 注意: 该参数必须用 2025.12 编译(运行时 API)——2026.9 改成了编译期
+  # PHY 参数且其新 WiFi 状态机与本板(ESP32-C3 rev0.4)组合存在认证挂死问题,
+  # 详见 README 的 WiFi 排障章节。
+  output_power: 8.5dBm
+  # 不配置 fallback AP(热点)。依据: QBIT#29 等案例表明 C3 单射频上 AP 与 STA
+  # 共存/切换会干扰 STA 连接; 且重试风暴期间热点因信道跳变基本搜不到,
+  # 本项目凭据在 CI 里烧死、刷机走 USB, 配网兜底无实际用途。
+  # 如需恢复, 加回以下两段并同步恢复 captive_portal::
+  #   ap:
+  #     ssid: "music-player"
+  #     password: "12345678"
 
-captive_portal:
+# captive_portal 已移除: 它依赖 fallback AP, 本固件不再配置热点(见 wifi 块注释)。
 
 # ---------------- I2S 音频 ----------------
 i2s_audio:
