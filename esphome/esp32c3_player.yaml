@@ -41,6 +41,14 @@ esp32:
   flash_size: 4MB
   framework:
     type: esp-idf          # media_player 的 speaker 平台仅支持 ESP-IDF
+    sdkconfig_options:
+      # 本板为 ESP32-C3FH4: XMC 家嵌入式 flash(flash_id 厂商 0x46) + rev0.4 步进。
+      # XMC flash 在部分 IDF 版本上有读取稳定性/挂起兼容问题, 会波及存放在
+      # NVS 里的 RF 校准数据(读坏 -> 扫描变聋)。两条通用稳定性 workaround:
+      CONFIG_ESPTOOLPY_FLASHFREQ: "40m"    # flash 时钟 80M -> 40M (XMC 最常用解法)
+      CONFIG_ESPTOOLPY_FLASHFREQ_40M: "y"
+      CONFIG_ESPTOOLPY_FLASHFREQ_80M: "n"
+      CONFIG_SPI_FLASH_SUSPEND: "n"        # 关闭 flash 自动挂起(XMC 挂起/恢复有 errata)
 
 logger:
   hardware_uart: USB_SERIAL_JTAG   # 走板载 USB-C, 避开 GPIO20/21
