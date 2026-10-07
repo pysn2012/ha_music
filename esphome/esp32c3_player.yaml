@@ -62,12 +62,10 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none     # 流媒体播放稳定性优先, 略增功耗
-  # 供电弱的板子把 TX 功率压到 8.5dBm(允许的最低值): 满功率 TX 电流尖峰
-  # ~330mA 会拉垮 3.3V 轨, MPY 实测本板 8.5dBm 下 10/10 稳定。
-  # 注意: 该参数必须用 2025.12 编译(运行时 API)——2026.9 改成了编译期
-  # PHY 参数且其新 WiFi 状态机与本板(ESP32-C3 rev0.4)组合存在认证挂死问题,
-  # 详见 README 的 WiFi 排障章节。
-  output_power: 8.5dBm
+  # 注意: 不要给本板配置 output_power! 实测(2026.9 编译期/2025.12 运行时两种
+  # 机制均试过)在这块 rev0.4+XMC 板上, 只要 ESPHome 自己设置 TX 功率,
+  # 认证流程就会挂死; 而 MicroPython 手动设同样的 8.5dBm 却 10/10 稳定。
+  # 全功率下的 Auth Expired 风暴由硬件整改(LDO/电容)根治, 之后也不需要它。
   # 不配置 fallback AP(热点)。依据: QBIT#29 等案例表明 C3 单射频上 AP 与 STA
   # 共存/切换会干扰 STA 连接; 且重试风暴期间热点因信道跳变基本搜不到,
   # 本项目凭据在 CI 里烧死、刷机走 USB, 配网兜底无实际用途。

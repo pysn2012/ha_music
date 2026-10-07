@@ -22,7 +22,7 @@
    - **本地命令行（调试期推荐，一条命令=编译+烧录+看日志）**：`pip install esphome==2026.9.0` 后执行 `esphome run esp32c3_player.yaml`（目录里已放好本地用的 `secrets.yaml`，已被 .gitignore 排除；首次编译要下载 ESP-IDF 工具链 10~20 分钟，之后增量编译 1~2 分钟）。
    - **GitHub Actions**：推送后手动触发 `build esphome`，下载 Artifact 用 [web.esphome.io](https://web.esphome.io) 或 esptool 从 USB 刷入（工具链已加缓存，重复构建 3~5 分钟）。
 3. 板子用 USB-C 线连接电脑。首次烧录如果识别不到串口：**按住板上的 BOOT 键再插 USB**，松开后开始烧录。
-4. 烧录完成后设备从电池/USB 供电即可，第一次启动若连不上 WiFi 会开放热点 `music-player`（密码 12345678）用于配网。
+4. 烧录完成后设备从电池/USB 供电即可。**刷机前建议先全片擦除**：`esptool --port COM口 --chip esp32c3 erase_flash`——板上先后跑过多套固件栈（ESPHome 2026.9 多版、MicroPython、2025.12）时，NVS/RF 校准分区残留会捣乱（ESPEasy#5638 的同款教训）；顺手用 `esptool flash_id` 看一眼 flash 品牌，克隆板常见 XMC，个别固件栈版本对它有兼容怪癖。本固件**不启用配网热点**（WiFi 凭据由 CI 烧死，重配=重刷），WiFi 连不上时设备会每 10 分钟自动重启重试。
 
 ## 接入 Home Assistant
 
@@ -90,15 +90,20 @@ SD 的三个比较器阈值（0.16 / 0.77 / 1.4V）是数据手册给出的**绝
 
 OPUS 解码在 C3 上跑不动，不要把 pipeline 格式设成 OPUS。认真追求音质/FLAC 高码率时，换 ESP32-S3（N8R8，带 PSRAM）的板子最省心。
 
-## WiFi 一直连不上（反复 Auth Expired）
+## WiFi 一直连不上（反复 Auth Expired / 认证挂死）
 
-ESP32-C3 默认会协商 WiFi6(HE)，且在 WPA2/WPA3 混合模式下会走 SAE 认证——不少运营商光猫对这两者的实现有缺陷，表现就是日志里连续 `Auth Expired`、重试多轮才偶尔连上。固件已内置应对（`wifi_compat.h`，串口启动时会打印 `wifi_compat ... rc=0`）：
+本板（ESP32-C3 rev0.4 早期步进 + 弱供电：SuperMini 板载 LDO 仅 250mA、载板走线细）上实测出的两个事实：
 
-- **每次断开/认证失败后**，把 STA 强制降级为传统客户端 **802.11b/g/n（禁用 WiFi6/HE）**（时机必须在断开后的空闲时刻——启动扫描中途调用会把认证流程挂死，这是实测踩过的坑）；
-- **发射功率运行时压到 8.5dBm**：WiFi TX 满功率瞬时电流 ~330mA 会拉垮弱供电的 3.3V 轨（MPY 实测 8.5dBm 时 10/10 稳定连接）。注意不能用 YAML 的 `output_power`——那是编译期 PHY 参数（`CONFIG_ESP_PHY_MAX_TX_POWER`），实测会把认证流程挂死；固件里改为 `wifi.on_disconnect` 时调用 `esp_wifi_set_max_tx_power(34)`；
-- 10 分钟仍未连上 WiFi 自动整机重启，重置重试节奏（连接正常时永不触发）。
+- **满功率下 TX 电流尖峰（~330mA）会把 3.3V 轨拉垮**，认证帧发不完整，表现为反复 `Auth Expired`、多轮重试才偶尔连上；
+- **ESPHome 2026.9 的新 WiFi 状态机与这块芯片组合存在认证挂死问题**：无论在哪个时机调用 `esp_wifi_set_protocol` / `esp_wifi_set_max_tx_power`（on_boot、on_disconnect 都试过），或使用 2026.9 改为编译期 PHY 参数的 `output_power`，认证流程都会卡死（`attempt 1/2` 后再无任何事件，只能靠兜底重启）。MPY 在完全空闲的主任务里做同样的设置则 10/10 稳定。
 
-若改后仍连不上，多半在网关侧，按序排查：
+因此固件固定用 **ESPHome 2025.12.0** 编译（旧 WiFi 架构，`output_power` 是运行时 API），并保留：
+
+- **不要配置 `output_power`**（重要）：实测在这块 rev0.4+XMC 板上，无论 2026.9 的编译期 PHY 方式还是 2025.12 的运行时方式，只要 ESPHome 自己设置 TX 功率，认证流程就会挂死（MicroPython 手动设同样的 8.5dBm 则 10/10 稳定，说明是 ESPHome 的应用方式与板子相克）。全功率下的 `Auth Expired` 风暴由硬件整改（LDO/电容）根治，整改完成后也不需要它；
+- **10 分钟仍未连上自动整机重启**，重置重试节奏（连接正常时永不触发）；
+- **不启用 fallback 热点与 captive portal**（参考 QBIT#29 的教训：C3 单射频上 AP 与 STA 共存/切换会干扰 STA 连接；且重试风暴期间热点因信道跳变基本搜不到，实用价值为零）。
+
+若仍连不上，多半在网关侧，按序排查：
 
 1. 重启光猫/网关；
 2. 网关后台关闭"防蹭网 / WiFi防破解 / 接入控制(MAC 过滤)"，确认板子 MAC 未被拉黑；
